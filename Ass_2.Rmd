@@ -1,0 +1,137 @@
+---
+title: "Data Science for Industry-Assignment 2"
+author: "Timothy Roelf"
+date: "8/26/2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(keras)
+library(tidyverse)
+library(tidytext)
+data("stop_words")
+```
+
+
+```{r}
+## Create the bag-of-words (using tf-idf weights)
+
+complaints <- complaints %>% rename("id_str" = id)
+
+tidy_compl <- complaints %>% 
+  unnest_tokens(word,consumer_complaint_narrative) %>%    # turn data into tidy format 
+  anti_join(stop_words)  # get rid of stop words
+  
+word_bag <- tidy_compl %>% 
+  group_by(word) %>% 
+  count() %>%   # count the number of times each word appears
+  ungroup() %>% 
+  top_n(2000,wt = n) %>%  # choose a subset of the 5000 most popular words
+  select(-n)   
+
+compl_tdf <- tidy_compl %>% 
+  inner_join(word_bag) %>%  # join tidy_compl & word_bag, so only the words in WB are chosen from TC
+  group_by(id_str,word) %>% 
+  count() %>%     # count the number of times a word appears in a document
+  ungroup() %>% 
+  bind_tf_idf(word,id_str,n)  # calculate the tf_idf weights
+ 
+
+bag_of_words <- compl_tdf %>% 
+  select(id_str,word,tf_idf) %>%    # choose only the useful information
+  spread(key = word, value = tf_idf, fill = 0) %>%   # return to non-tidy format - for the later modelling
+  left_join(complaints %>% select(id_str,consumer_compensated)) %>%   # add the response (compensated or not)
+  select(id_str,consumer_compensated,everything())
+
+table(bag_of_words$consumer_compensated)  # check to see if there is class imbalance
+
+min_words <- min(table(bag_of_words$consumer_compensated))  # there is reduce the greater side 
+bag_of_words <- bag_of_words %>% 
+  group_by(consumer_compensated) %>% 
+  sample_n(min_words) %>% 
+  ungroup()
+
+table(bag_of_words$consumer_compensated) 
+
+```
+
+
+```{r}
+## Create training and test datasets
+
+set.seed(100)
+
+# train and test split (0.67 & 0.33)
+train_ids <- bag_of_words %>% 
+  group_by(consumer_compensated) %>% 
+  sample_frac(0.67) %>%  # this is important - as it tells to sample evenly (0.67 from both types of responses) 
+  ungroup() %>% 
+  select(id_str)
+
+# split the training set into features and responses - for later modelling
+train_features <- bag_of_words %>% 
+  filter(id_str %in% train_ids$id_str) %>% 
+  select(-id_str,-consumer_compensated)  %>% 
+  as.matrix()  # change to matrix form for keras
+dimnames(train_features) <- NULL  
+
+train_response <- bag_of_words %>% 
+  filter(id_str %in% train_ids$id_str) %>% 
+  select(consumer_compensated) %>% 
+  as.matrix() %>% 
+  to_categorical()  # one_hot_encode the responses
+
+# split the test set into features and repsonses
+test_features <- bag_of_words %>% 
+  filter(!id_str %in% train_ids$id_str) %>% 
+  select(-id_str,-consumer_compensated) %>% 
+  as.matrix()
+dimnames(test_features) <- NULL
+
+test_rep_ori <- bag_of_words %>% 
+  filter(!id_str %in% train_ids$id_str) %>% 
+  select(consumer_compensated) %>% 
+  as.matrix()  # keep the original testset for comparisons later
+
+test_response <- test_rep_ori %>% to_categorical()  # for use with keras
+
+save(train_features, train_response, test_features, test_rep_ori, test_response,
+     file = "train-test.RData")
+```
+
+
+```{r}
+## Build model using keras_sequential()
+
+model1 <- keras_model_sequential()  # initialise the model
+model1 %>%  # construct the architecture
+    layer_dense(units = 300, activation = 'relu', input_shape = c(2003)) %>% 
+    layer_dropout(rate = 0.5) %>%
+    layer_dense(units = 100, activation = 'relu') %>% 
+    layer_dropout(rate = 0.3) %>% 
+    layer_dense(units = 2, activation = 'softmax')
+
+model1 %>% compile(
+  loss = 'categorical_crossentropy',
+  optimizer = optimizer_adam(lr = 0.01),
+  metrics = c('accuracy')
+)
+
+endgame <- model1 %>% fit(
+  train_features, train_response, 
+  epochs = 250, batch_size = 10, 
+  validation_split = 0.2, shuffle = TRUE
+)
+
+plot(endgame)
+
+model1 %>% evaluate(test_features,test_response)
+```
+
+
+
