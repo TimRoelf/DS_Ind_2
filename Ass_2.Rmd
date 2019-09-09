@@ -1,16 +1,19 @@
 ---
 title: "Data Science for Industry-Assignment 2"
 author: "Timothy Roelf"
-date: "8/26/2019"
-output: pdf_document
+date: "5 September 2019"
+output: 
+  pdf_document:
+    toc: true
+    toc_depth: 2
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = T)
 ```
 
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 library(keras)
 library(tidyverse)
 library(tidytext)
@@ -31,7 +34,7 @@ word_bag <- tidy_compl %>%
   group_by(word) %>% 
   count() %>%   # count the number of times each word appears
   ungroup() %>% 
-  top_n(2000,wt = n) %>%  # choose a subset of the 5000 most popular words
+  top_n(2000,wt = n) %>%  # choose a subset of most popular words
   select(-n)   
 
 compl_tdf <- tidy_compl %>% 
@@ -106,14 +109,15 @@ save(train_features, train_response, test_features, test_rep_ori, test_response,
 
 
 ```{r}
+## ANN
 ## Build model using keras_sequential()
 
 model1 <- keras_model_sequential()  # initialise the model
 model1 %>%  # construct the architecture
-    layer_dense(units = 300, activation = 'relu', input_shape = c(2003)) %>% 
-    layer_dropout(rate = 0.5) %>%
-    layer_dense(units = 100, activation = 'relu') %>% 
-    layer_dropout(rate = 0.3) %>% 
+    layer_dense(units = 5, activation = 'relu', input_shape = c(2003)) %>% 
+    #layer_dropout(rate = 0.5) %>%
+    #layer_dense(units = 20, activation = 'relu') %>% 
+    #layer_dropout(rate = 0.3) %>% 
     layer_dense(units = 2, activation = 'softmax')
 
 model1 %>% compile(
@@ -124,7 +128,7 @@ model1 %>% compile(
 
 endgame <- model1 %>% fit(
   train_features, train_response, 
-  epochs = 250, batch_size = 10, 
+  epochs = 100, batch_size = 5, 
   validation_split = 0.2, shuffle = TRUE
 )
 
@@ -134,4 +138,8 @@ model1 %>% evaluate(test_features,test_response)
 ```
 
 
+```{r}
+## CNN
+## Build model using 
+```
 
